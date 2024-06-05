@@ -1,0 +1,37 @@
+name: "babyagi_task_finalizer"
+author: "naptha"
+version: "0.1.0"
+description: "A tool in naptha's babyagi."
+license: "MIT"
+
+models:
+  default_model_provider: "ollama"
+  ollama:
+    model: "ollama/phi"
+    max_tokens: 1000
+    temperature: 0
+    api_base: "http://localhost:11434"
+
+inputs:
+  system_message: "You are a helpful AI assistant."
+  user_message_template: |
+    You are given the following objective: {{objective}}.
+    Your colleagues have accomplished the following tasks with the following results: {{tasks}}.
+
+    <INSTRUCTIONS>
+    1. Your task is to prepare a final report using the results of the tasks.
+    </INSTRUCTIONS>
+    Final Report:
+
+
+Final Report:
+  save: false
+  location: "ipfs"
+
+outputs:
+  save: false
+  location: "node"
+
+implementation:
+  package:
+    entrypoint: "run.py"
