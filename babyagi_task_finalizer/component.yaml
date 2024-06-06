@@ -11,6 +11,10 @@ models:
     max_tokens: 1000
     temperature: 0
     api_base: "http://localhost:11434"
+  openai:
+    model: "openai/gpt-3.5-turbo"
+    max_tokens: 1000
+    temperature: 0
 
 inputs:
   system_message: "You are a helpful AI assistant."
@@ -19,10 +23,13 @@ inputs:
     Your colleagues have accomplished the following tasks with the following results: {{tasks}}.
 
     <INSTRUCTIONS>
-    1. Your task is to prepare a final report using the results of the tasks.
+    1. Your task is to study the results of the tasks and prepare a final report.
+    2. The final report should be very detailed.
+    3. The report should encompass all the tasks that have been performed.
+    4. The report should be in MARKDOWN format.
+    5. Only prepare the final report if the objective have been met.
+    6. If the objective have not been met, prepare the new tasks that need to be performed.
     </INSTRUCTIONS>
-    Final Report:
-
 
 Final Report:
   save: false
