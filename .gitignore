@@ -1,5 +1,5 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+babyagi_task_finalizer/__pycache__
 *.py[cod]
 *$py.class
 
