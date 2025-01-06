@@ -84,7 +84,7 @@ if __name__ == "__main__":
     
     # Load agent deployments
     print(os.getenv("NODE_URL"))
-    deployment = asyncio.run(setup_module_deployment("agent", "babyagi_task_finalizer/configs/deployments.json", node_url = os.getenv("NODE_URL")))
+    deployment = asyncio.run(setup_module_deployment("agent", "babyagi_task_finalizer/configs/deployment.json", node_url = os.getenv("NODE_URL")))
     deployment = AgentDeployment(**deployment.model_dump())
     print("BabyAGI Task Finalizer Deployment:", deployment)
 
