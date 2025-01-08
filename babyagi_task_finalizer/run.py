@@ -1,10 +1,12 @@
 from dotenv import load_dotenv
 from babyagi_task_finalizer.schemas import (
-    InputSchema,
-    TaskFinalizerPromptSchema
+    InputSchema
 )
 from naptha_sdk.schemas import AgentDeployment, AgentRunInput
 from naptha_sdk.utils import get_logger
+from naptha_sdk.user import sign_consumer_id
+from typing import Dict
+from schemas import TaskFinalizer
 import json
 import asyncio
 
@@ -32,11 +34,11 @@ class TaskFinalizerAgent:
     async def generate_tasks(self, inputs: InputSchema) -> str:
         user_prompt = self.user_message_template.replace(
             "{{objective}}",
-            inputs.tool_input_data.objective
+            inputs["tool_input_data"]["objective"]
         )
 
         # Prepare context if available
-        context = inputs.tool_input_data.context
+        context = inputs["tool_input_data"]["context"]
         if context:
             user_prompt += f"\nContext: {context}"
 
@@ -49,11 +51,22 @@ class TaskFinalizerAgent:
         # Prepare LLM configuration
         llm_config = self.agent_deployment.config.llm_config
 
+        def get_openai_structured_schema():
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "User",
+                    "schema": TaskFinalizer.model_json_schema()
+                }
+            }
+        schema = get_openai_structured_schema()
+
         input_ = {
             "messages": messages,
             "model": llm_config.model,
             "temperature": llm_config.temperature,
-            "max_tokens": llm_config.max_tokens
+            "max_tokens": llm_config.max_tokens,
+            'response_format': schema
         }
 
         response = await naptha.node.run_inference(
@@ -69,11 +82,12 @@ class TaskFinalizerAgent:
             return
         
 
-async def run(agent_run: AgentRunInput, *args, **kwargs):
-    logger.info(f"Running with inputs {agent_run.inputs.tool_input_data}")
-    task_initiator_agent = TaskFinalizerAgent(agent_run.deployment)
-    method = getattr(task_initiator_agent, agent_run.inputs.tool_name, None)
-    return await method(agent_run.inputs)
+async def run(module_run: Dict, *args, **kwargs):
+    module_run = AgentRunInput(**module_run)
+    logger.info(f"Running with inputs {module_run.inputs['tool_input_data']}")
+    task_initiator_agent = TaskFinalizerAgent(module_run.deployment)
+    method = getattr(task_initiator_agent, module_run.inputs['tool_name'], None)
+    return await method(module_run.inputs)
 
 if __name__ == "__main__":
     from naptha_sdk.client.naptha import Naptha
@@ -89,20 +103,21 @@ if __name__ == "__main__":
     print("BabyAGI Task Finalizer Deployment:", deployment)
 
     # Prepare input parameters
-    input_params = InputSchema(
-        tool_name="generate_tasks",
-        tool_input_data=TaskFinalizerPromptSchema(
-            objective="Write a blog post about the weather in London.",
-            context="Focus on historical weather patterns between 1900 and 2000"
-        )
-    )
+    input_params: Dict = {
+        "tool_name": "generate_tasks",
+        "tool_input_data": {
+            "objective": "Write a blog post about the weather in London.",
+            "context": "Focus on historical weather patterns between 1900 and 2000"
+        }
+    }
 
     # Create agent run input
-    agent_run = AgentRunInput(
-        inputs=input_params,
-        deployment=deployment,
-        consumer_id=naptha.user.id,
-    )
+    agent_run: Dict = {
+        "inputs": input_params,
+        "deployment": deployment,
+        "consumer_id": naptha.user.id,
+        "signature": sign_consumer_id(naptha.user.id, os.getenv("PRIVATE_KEY"))
+    }
 
     # Run the agent
     response = asyncio.run(run(agent_run))
