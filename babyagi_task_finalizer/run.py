@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from babyagi_task_finalizer.schemas import (
     InputSchema
 )
+from naptha_sdk.inference import InferenceClient
 from naptha_sdk.schemas import AgentDeployment, AgentRunInput
 from naptha_sdk.utils import get_logger
 from naptha_sdk.user import sign_consumer_id
@@ -16,7 +17,7 @@ logger = get_logger(__name__)
 class TaskFinalizerAgent:
     def __init__(self, agent_deployment: AgentDeployment):
         self.agent_deployment = agent_deployment
-
+        self.node = InferenceClient(self.agent_deployment.node)
         self.user_message_template = """
             You are given the following objective: {{objective}}.
                 Your colleagues have accomplished the following tasks with the following results: {{tasks}}.
@@ -69,7 +70,7 @@ class TaskFinalizerAgent:
             'response_format': schema
         }
 
-        response = await naptha.node.run_inference(
+        response = await self.node.run_inference(
             input_
         )
 
