@@ -6,7 +6,7 @@ from naptha_sdk.schemas import AgentDeployment, AgentRunInput
 from naptha_sdk.utils import get_logger
 from naptha_sdk.user import sign_consumer_id
 from typing import Dict
-from schemas import TaskFinalizer
+from babyagi_task_finalizer.schemas import TaskFinalizer
 import json
 import asyncio
 
