@@ -1,73 +1,124 @@
-import os
-import yaml
-import instructor
-from litellm import Router
-from babyagi_task_finalizer.schemas import InputSchema, TaskFinalizer
-from babyagi_task_finalizer.utils import get_logger
+from dotenv import load_dotenv
+from babyagi_task_finalizer.schemas import (
+    InputSchema
+)
+from naptha_sdk.schemas import AgentDeployment, AgentRunInput
+from naptha_sdk.utils import get_logger
+from naptha_sdk.user import sign_consumer_id
+from typing import Dict
+from schemas import TaskFinalizer
+import json
+import asyncio
 
-
+load_dotenv()
 logger = get_logger(__name__)
 
-client = instructor.patch(
-    Router(
-        model_list=
-        [
-            {
-                "model_name": "gpt-3.5-turbo",
-                "litellm_params": {
-                    "model": "openai/gpt-3.5-turbo",
-                    "api_key": os.getenv("OPENAI_API_KEY"),
-                },
-            }
-        ],
-        # default_litellm_params={"acompletion": True},
-    )
-)
+class TaskFinalizerAgent:
+    def __init__(self, agent_deployment: AgentDeployment):
+        self.agent_deployment = agent_deployment
 
-def llm_call(messages, response_model=None):
-    if response_model:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            response_model=response_model,
-            messages=messages,
-            temperature=0.0,
-            max_tokens=1000,
+        self.user_message_template = """
+            You are given the following objective: {{objective}}.
+                Your colleagues have accomplished the following tasks with the following results: {{tasks}}.
+
+                <INSTRUCTIONS>
+                1. Your task is to study the results of the tasks and prepare a final report.
+                2. The final report should be very detailed.
+                3. The report should encompass all the tasks that have been performed.
+                4. The report should be in MARKDOWN format.
+                5. Only prepare the final report if the objective have been met.
+                6. If the objective have not been met, prepare the new tasks that need to be performed.
+                </INSTRUCTIONS>
+                """
+
+    async def generate_tasks(self, inputs: InputSchema) -> str:
+        user_prompt = self.user_message_template.replace(
+            "{{objective}}",
+            inputs["tool_input_data"]["objective"]
         )
-    return response
 
-def run(inputs: InputSchema, *args, **kwargs):
-    logger.info(f"Running with inputs {inputs.objective}")
-    logger.info(f"Running with inputs {inputs.task}")
-    cfg = kwargs["cfg"]
+        # Prepare context if available
+        context = inputs["tool_input_data"]["context"]
+        if context:
+            user_prompt += f"\nContext: {context}"
 
-    user_prompt = cfg["inputs"]["user_message_template"].replace("{{task}}", inputs.task).replace("{{objective}}", inputs.objective)
+        # Prepare messages
+        messages = [
+            {"role": "system", "content": json.dumps(self.agent_deployment.config.system_prompt)},
+            {"role": "user", "content": user_prompt}
+        ]
 
-    messages = [
-        {"role": "system", "content": cfg["inputs"]["system_message"]},
-        {"role": "user", "content": user_prompt}
-    ]
+        # Prepare LLM configuration
+        llm_config = self.agent_deployment.config.llm_config
 
-    response = llm_call(messages, response_model=TaskFinalizer)
+        def get_openai_structured_schema():
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "User",
+                    "schema": TaskFinalizer.model_json_schema()
+                }
+            }
+        schema = get_openai_structured_schema()
 
-    logger.info(f"Result: {response}")
+        input_ = {
+            "messages": messages,
+            "model": llm_config.model,
+            "temperature": llm_config.temperature,
+            "max_tokens": llm_config.max_tokens,
+            'response_format': schema
+        }
 
-    return response.model_dump_json()
+        response = await naptha.node.run_inference(
+            input_
+        )
 
+        try:
+            response_content = response.choices[0].message.content
+            return response_content
+        
+        except Exception as e:
+            logger.error(f"Failed to parse response: {response}. Error: {e}")
+            return
+        
+
+async def run(module_run: Dict, *args, **kwargs):
+    module_run = AgentRunInput(**module_run)
+    logger.info(f"Running with inputs {module_run.inputs['tool_input_data']}")
+    task_initiator_agent = TaskFinalizerAgent(module_run.deployment)
+    method = getattr(task_initiator_agent, module_run.inputs['tool_name'], None)
+    return await method(module_run.inputs)
 
 if __name__ == "__main__":
-    with open("babyagi_task_finalizer/component.yaml", "r") as f:
-        cfg = yaml.safe_load(f)
+    from naptha_sdk.client.naptha import Naptha
+    from naptha_sdk.configs import setup_module_deployment
+    import os
 
-    inputs = InputSchema(
-        task="Weather pattern between year 1900 and 2000 was cool andry", 
-        objective="Write a blog post about the weather in London."
-    )
+    naptha = Naptha()
+    
+    # Load agent deployments
+    print(os.getenv("NODE_URL"))
+    deployment = asyncio.run(setup_module_deployment("agent", "babyagi_task_finalizer/configs/deployment.json", node_url = os.getenv("NODE_URL")))
+    deployment = AgentDeployment(**deployment.model_dump())
+    print("BabyAGI Task Finalizer Deployment:", deployment)
 
-    r = run(inputs, cfg=cfg)
-    logger.info(f"Result: {type(r)}")
+    # Prepare input parameters
+    input_params: Dict = {
+        "tool_name": "generate_tasks",
+        "tool_input_data": {
+            "objective": "Write a blog post about the weather in London.",
+            "context": "Focus on historical weather patterns between 1900 and 2000"
+        }
+    }
 
+    # Create agent run input
+    agent_run: Dict = {
+        "inputs": input_params,
+        "deployment": deployment,
+        "consumer_id": naptha.user.id,
+        "signature": sign_consumer_id(naptha.user.id, os.getenv("PRIVATE_KEY"))
+    }
 
-    import json
-    t = TaskFinalizer(**json.loads(r))
-    logger.info(f"Final report: {type(t)}")
-
+    # Run the agent
+    response = asyncio.run(run(agent_run))
+    logger.info(f"Final Response: {response}")
